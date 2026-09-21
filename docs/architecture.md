@@ -2,7 +2,7 @@
 
 ## Goal
 
-The preliminary MVP demonstrates a small but defensible backend architecture for tracking job applications without storing real private application data in the public repository.
+The service demonstrates a layered backend for tracking job applications without storing real private application data in the public repository. Version 0.2 extends the initial MVP with protected access, paginated queries, and pipeline analytics.
 
 ## Components
 
@@ -14,6 +14,7 @@ FastAPI route layer
         │
         ├── Pydantic validation
         ├── domain errors (404 / 409)
+        ├── optional X-API-Key guard
         │
         ▼
 Service/query layer
@@ -54,9 +55,9 @@ Applications reference an employer and optionally a resume version. Status-histo
 
 For a larger system, this invariant would be enforced more formally in a service layer and tested at the database boundary.
 
-## Search/filter strategy
+## Search, pagination, and analytics
 
-The MVP uses SQL filtering instead of loading records into Python. Search spans:
+The service uses SQL filtering instead of loading records into Python. Search spans:
 
 - role title;
 - employer name;
@@ -64,7 +65,13 @@ The MVP uses SQL filtering instead of loading records into Python. Search spans:
 
 Structured filters cover status, work mode, employer, term length, and deadline windows.
 
-This is sufficient for a portfolio MVP. PostgreSQL full-text search or trigram indexes would be reasonable later if the dataset became large.
+The existing list endpoint still returns an array. The new `/applications/page` endpoint uses the same filtered query to calculate a total, applies a whitelisted sort column and ID tie-breaker, and returns `has_more` for pagination. `deadline` sorting puts null values last. Offset pagination is simple but can shift as records are inserted; cursor pagination would be appropriate at larger scale.
+
+`/analytics/pipeline` uses grouped SQL counts and bounded deadline queries. Rejected, withdrawn, and closed applications are treated as terminal and excluded from overdue/upcoming deadline counts. The report accepts an explicit timezone-aware `as_of` value so tests and comparisons are reproducible. PostgreSQL full-text search or trigram indexes would be reasonable later if the dataset became large.
+
+## Access model
+
+When `API_KEY` is configured, every `/api/v1` route requires the `X-API-Key` header; the root and health routes remain public. Comparison is constant-time. Production mode fails at startup if the key is absent. Docker Compose binds the API to `127.0.0.1` for keyless local use. This is a **single-user guard**, not identity, role-based access, rate limiting, or secure multi-user isolation. A real deployment needs proper authentication and authorization before accepting private records.
 
 ## Error handling
 
@@ -83,7 +90,7 @@ The same shape is used for uniqueness conflicts. FastAPI/Pydantic still owns mal
 
 ## Database initialization
 
-For the preliminary version, `Base.metadata.create_all()` keeps first-run setup simple. This is deliberately documented as an MVP compromise. A production-ready next step is Alembic migrations.
+`Base.metadata.create_all()` still keeps first-run setup simple. It does not version or alter existing schemas; Alembic migrations are the next database-hardening step. Do not treat the API-key guard as making this database lifecycle production-ready.
 
 ## Privacy model
 
@@ -100,7 +107,6 @@ It should never contain real resumes, transcripts, application PDFs, emails, cre
 
 1. **Alembic:** version schema changes instead of auto-creating tables.
 2. **Authentication:** unnecessary for a local single-user portfolio demo, required for multi-user deployment.
-3. **Metrics:** pipeline conversion and deadline summary endpoints.
-4. **Frontend:** small dashboard consuming the API.
-5. **Observability:** structured logs and request IDs.
-6. **Stronger tests:** PostgreSQL integration test in CI in addition to isolated SQLite tests.
+3. **Frontend:** small dashboard consuming the API.
+4. **Observability:** structured logs and request IDs.
+5. **Stronger tests:** PostgreSQL integration test in CI in addition to isolated SQLite tests.

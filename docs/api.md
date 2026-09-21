@@ -4,6 +4,8 @@ Base prefix: `/api/v1`
 
 Interactive documentation is generated automatically at `/docs`.
 
+If `API_KEY` is configured, send `X-API-Key: <your key>` on all `/api/v1` requests; missing or incorrect keys return HTTP 401. The root and `/health` endpoints remain public. `APP_ENV=production` refuses to start without an API key. This is single-user protection, not multi-user authorization.
+
 ## Employers
 
 ### `POST /employers`
@@ -47,6 +49,7 @@ Required fields:
 - `role_title`
 
 If `term_length_months` is supplied, `term_start` is required.
+`deadline`, when supplied, must include a timezone offset (for example `Z` or `+00:00`).
 
 Creating an application also creates its first status-history record.
 
@@ -66,6 +69,26 @@ Supported filters:
 | `deadline_after` | ISO datetime | lower deadline bound |
 | `limit` | `50` | page size |
 | `offset` | `0` | simple pagination offset |
+| `sort_by` | `deadline` | `updated_at`, `created_at`, `deadline`, or `role_title` |
+| `sort_order` | `asc` | `asc` or `desc` |
+
+The response remains a JSON array for compatibility. Deadline filters must include timezone offsets, and an inverted deadline window returns HTTP 422. Sort columns are whitelisted; equal values are ordered by ID so page boundaries are deterministic.
+
+### `GET /applications/page`
+
+Accepts the same filters and sort parameters as `/applications` but returns pagination metadata:
+
+```json
+{
+  "items": [{ "id": 1, "role_title": "Software Developer Intern" }],
+  "total": 12,
+  "limit": 1,
+  "offset": 0,
+  "has_more": true
+}
+```
+
+The example `items` entry is abbreviated; actual entries use the full `ApplicationRead` schema. `has_more` is based on the filtered total, not on the current page length alone. Null deadlines sort last in both directions.
 
 ### `GET /applications/{id}`
 
@@ -73,7 +96,7 @@ Returns one application with nested employer and optional resume-version metadat
 
 ### `PATCH /applications/{id}`
 
-Updates editable application fields other than status. Use the status-history endpoint to change status so a transition record is preserved.
+Updates editable application fields other than status. Unknown fields, explicit nulls for required fields, and naive deadline timestamps return HTTP 422. Use the status-history endpoint to change status so a transition record is preserved.
 
 ### `DELETE /applications/{id}`
 
@@ -95,6 +118,17 @@ Updates the application's current status and appends a history row in the same t
 ### `GET /applications/{id}/status-history`
 
 Returns newest status records first.
+
+## Pipeline analytics
+
+### `GET /analytics/pipeline`
+
+Parameters:
+
+- `window_days` — 1–90, default 7;
+- `as_of` — optional timezone-aware ISO timestamp, default current UTC time.
+
+The response includes `total`, `active`, `by_status` (including zero counts), `overdue_deadlines`, `due_soon`, and up to ten `upcoming_deadlines` ordered by deadline then ID. Rejected, withdrawn, and closed applications are terminal and excluded from deadline counts. `due_soon` covers deadlines from `as_of` through the end of the window, inclusive; `overdue_deadlines` are earlier than `as_of`.
 
 ## Status values
 

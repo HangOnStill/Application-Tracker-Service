@@ -2,7 +2,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       APP_ENV: docker
       DATABASE_URL: postgresql+psycopg://apptracker:apptracker@db:5432/apptracker

@@ -1,4 +1,4 @@
-from datetime import datetime
+from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -7,18 +7,20 @@ from app.core.errors import NotFoundError
 from app.db.session import get_db
 from app.models.application import Application
 from app.models.employer import Employer
-from app.models.enums import ApplicationStatus, WorkMode
+from app.models.enums import ApplicationStatus
 from app.models.resume_version import ResumeVersion
 from app.models.status_history import StatusHistory
 from app.schemas.application import (
     ApplicationCreate,
+    ApplicationListParams,
+    ApplicationPage,
     ApplicationRead,
     ApplicationUpdate,
     StatusHistoryCreate,
     StatusHistoryRead,
 )
 from app.schemas.common import DeleteResponse
-from app.services.applications import filter_applications
+from app.services.applications import search_applications
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -58,30 +60,25 @@ def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)
 
 @router.get("", response_model=list[ApplicationRead])
 def list_applications(
-    search: str | None = Query(default=None, max_length=120),
-    status_filter: ApplicationStatus | None = Query(default=None, alias="status"),
-    work_mode: WorkMode | None = None,
-    employer_id: int | None = None,
-    location: str | None = Query(default=None, max_length=120),
-    term_length_months: int | None = Query(default=None, ge=1, le=24),
-    deadline_before: datetime | None = None,
-    deadline_after: datetime | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
+    params: Annotated[ApplicationListParams, Query()],
     db: Session = Depends(get_db),
 ):
-    return filter_applications(
-        db,
-        search=search,
-        status=status_filter,
-        work_mode=work_mode,
-        employer_id=employer_id,
-        location=location,
-        term_length_months=term_length_months,
-        deadline_before=deadline_before,
-        deadline_after=deadline_after,
-        limit=limit,
-        offset=offset,
+    items, _ = search_applications(db, **params.model_dump())
+    return items
+
+
+@router.get("/page", response_model=ApplicationPage)
+def page_applications(
+    params: Annotated[ApplicationListParams, Query()],
+    db: Session = Depends(get_db),
+):
+    items, total = search_applications(db, **params.model_dump())
+    return ApplicationPage(
+        items=items,
+        total=total,
+        limit=params.limit,
+        offset=params.offset,
+        has_more=params.offset + len(items) < total,
     )
 
 

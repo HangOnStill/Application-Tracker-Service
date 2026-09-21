@@ -1,16 +1,19 @@
 # Application Tracker Service
 
-A preliminary, portfolio-ready backend for tracking job applications with **FastAPI**, **SQLAlchemy**, **PostgreSQL/SQLite**, automated tests, Docker, CI, and concise architecture/API documentation.
+A portfolio backend for tracking job applications with **FastAPI**, **SQLAlchemy**, **PostgreSQL/SQLite**, automated tests, Docker, CI, and architecture/API documentation. Version 0.2 adds query metadata, pipeline analytics, and a configurable single-user API key without breaking the original list endpoint.
 
 The project models the parts of an application search that become difficult to manage in spreadsheets: employers, applications, deadlines, status transitions, resume versions, and searchable records.
 
-> **Portfolio status:** preliminary MVP. It intentionally uses only synthetic/demo data and contains no real resumes, transcripts, credentials, or private application records.
+> **Portfolio status:** an evolving single-user service beyond the initial MVP, not a production job-search platform. The repository contains only synthetic/demo data—no real resumes, transcripts, credentials, or private application records.
 
 ## What this demonstrates
 
 - Relational data modelling with foreign keys and uniqueness constraints.
 - REST CRUD endpoints with request/response validation.
 - Search and filtering across role, employer, location, status, deadline, and term length.
+- Stable, whitelisted sorting and a paginated search response with total and `has_more` metadata.
+- Pipeline summary with status counts, overdue deadlines, and upcoming deadlines.
+- Optional `X-API-Key` protection for data routes; production mode refuses to start without a configured key.
 - Explicit 404/409 API errors and transaction rollback on database conflicts.
 - Status-history tracking instead of silently overwriting application progress.
 - SQLite for zero-setup local/test use and PostgreSQL for Docker execution.
@@ -71,6 +74,8 @@ Open:
 - ReDoc: `http://127.0.0.1:8000/redoc`
 - Health check: `http://127.0.0.1:8000/health`
 
+By default, local/demo mode has no API key. To guard the API, set `API_KEY` to a long random value in your untracked `.env` file and send it in the `X-API-Key` header. `/health` and `/` remain public. **`APP_ENV=production` requires `API_KEY`**, but this shared key is not multi-user authentication; do not expose real personal records through this demo service.
+
 Seed synthetic demo records:
 
 ```powershell
@@ -83,7 +88,7 @@ python -m app.seed
 docker compose up --build
 ```
 
-The API becomes available at `http://127.0.0.1:8000` and uses PostgreSQL inside Docker.
+The API becomes available at `http://127.0.0.1:8000` and uses PostgreSQL inside Docker. Compose binds the API to loopback only so a keyless demo is not exposed to other devices on the network.
 
 Stop the stack:
 
@@ -131,7 +136,18 @@ Search/filter:
 GET /api/v1/applications?search=software&status=interested&work_mode=hybrid
 GET /api/v1/applications?deadline_before=2026-11-01T00:00:00Z
 GET /api/v1/applications?term_length_months=8&location=Ottawa
+GET /api/v1/applications/page?search=software&limit=20&offset=0&sort_by=deadline&sort_order=asc
 ```
+
+`/applications/page` returns `items`, `total`, `limit`, `offset`, and `has_more`. The original `/applications` list response remains available for compatibility. Sorting is limited to `updated_at`, `created_at`, `deadline`, and `role_title`; deadline timestamps and filters must include a timezone offset.
+
+Pipeline snapshot:
+
+```text
+GET /api/v1/analytics/pipeline?window_days=7
+```
+
+It returns counts for every status, active-application and overdue-deadline totals, plus up to ten nearest open deadlines in the requested window. Use `as_of` with a timezone offset for reproducible reports, for example `as_of=2026-10-01T12:00:00Z`.
 
 Record a status change:
 
@@ -164,7 +180,7 @@ Do **not** commit real applicant data to this public repository. Keep the follow
 
 Use synthetic records in screenshots, tests, demos, and seed scripts.
 
-## Current MVP scope
+## Current scope
 
 Implemented:
 
@@ -176,16 +192,18 @@ Implemented:
 - tests;
 - Docker/PostgreSQL;
 - CI;
-- API/architecture docs.
+- API/architecture docs;
+- configurable single-user API key guard;
+- paginated, sortable application search;
+- pipeline and deadline analytics.
 
-Good next steps:
+Remaining work before a production deployment:
 
 1. Alembic database migrations.
 2. Authentication and user ownership if the service becomes multi-user.
-3. Pagination metadata and richer sorting.
-4. CSV import/export using synthetic or user-provided local data.
-5. Small frontend dashboard.
-6. Metrics endpoint for pipeline conversion and deadline counts.
+3. CSV import/export with explicit privacy and size controls.
+4. Small frontend dashboard.
+5. PostgreSQL integration coverage, rate limits, backups, and operational monitoring.
 
 ## Reviewer path
 
@@ -193,6 +211,7 @@ If you are reviewing this as a portfolio project, the fastest path is:
 
 1. `app/models/application.py` — relational application model.
 2. `app/api/routes/applications.py` — CRUD, filtering, and status-history API.
-3. `app/services/applications.py` — query construction.
-4. `tests/test_applications.py` — externally observable behavior.
-5. `docs/architecture.md` — design rationale and tradeoffs.
+3. `app/services/applications.py` — filtered, sortable queries and page counts.
+4. `app/api/routes/analytics.py` — grouped pipeline and deadline metrics.
+5. `tests/test_advanced.py` — pagination, analytics, access, and validation behavior.
+6. `docs/architecture.md` — design rationale and tradeoffs.
